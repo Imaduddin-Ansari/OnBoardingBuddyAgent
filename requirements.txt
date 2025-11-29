@@ -1,5 +1,7 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-sqlalchemy==2.0.23
-python-dotenv==1.0.0
+fastapi==0.122.0
+mailslurp_client==17.0.0
+pydantic==2.12.5
+python-dotenv==1.2.1
+python_dateutil==2.9.0.post0
+SQLAlchemy==2.0.44
+uvicorn==0.38.0
