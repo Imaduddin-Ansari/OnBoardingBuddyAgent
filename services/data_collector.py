@@ -1,9 +1,3 @@
-"""
-Service Module 1: Data Collection
-Gathers new employee details including personal information, 
-department, joining date, and assigned manager.
-File: services/data_collector.py
-"""
 from datetime import datetime
 from typing import Optional
 from application.database import Database, Employee
@@ -17,9 +11,9 @@ class DataCollector:
     def create_employee(
         self,
         name: str,
-        email: str,
+        personal_email: str,  # CHANGED: renamed from 'email' to 'personal_email'
         department: str,
-        joining_date: str,
+        joining_date: datetime,
         manager_id: Optional[str] = None,
         phone: Optional[str] = None,
         position: Optional[str] = None
@@ -29,35 +23,38 @@ class DataCollector:
         
         Args:
             name: Full name of employee
-            email: Work email address
+            personal_email: Personal email address provided by user
             department: Department (Engineering, HR, Sales, etc.)
-            joining_date: ISO format date string or datetime
+            joining_date: datetime object
             manager_id: ID of assigned manager
             phone: Contact phone number
             position: Job title/position
-            
+        
         Returns:
             Employee object with generated ID
         """
         # Validate required fields
-        if not name or not email or not department:
-            raise ValueError("Name, email, and department are required")
+        if not name or not personal_email or not department:
+            raise ValueError("Name, personal email, and department are required")
         
         # Validate email format
-        if '@' not in email:
+        if '@' not in personal_email:
             raise ValueError("Invalid email format")
         
-        # Parse joining date
-        if isinstance(joining_date, str):
-            try:
-                joining_date = datetime.fromisoformat(joining_date.replace('Z', '+00:00'))
-            except ValueError:
-                raise ValueError("Invalid date format. Use ISO format (YYYY-MM-DD)")
+        # Check if personal email already exists
+        existing = self.db.get_employee_by_personal_email(personal_email)
+        if existing:
+            raise ValueError(f"Employee with personal email {personal_email} already exists")
         
-        # Create employee object
+        # Ensure joining_date is datetime object
+        if not isinstance(joining_date, datetime):
+            raise ValueError("joining_date must be a datetime object")
+        
+        # Create employee object - company email will be generated later by access_manager
         employee = Employee(
             name=name,
-            email=email,
+            personal_email=personal_email,
+            email=None,  # Will be set when company email is generated
             department=department,
             joining_date=joining_date,
             manager_id=manager_id,
@@ -68,7 +65,6 @@ class DataCollector:
         
         # Save to database
         employee = self.db.create_employee(employee)
-        
         return employee
     
     def get_employee_details(self, employee_id: str) -> Optional[Employee]:

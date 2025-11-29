@@ -1,115 +1,107 @@
 """
 Service Module 4: Progress Monitoring
-Tracks task completion and identifies pending items for each employee.
+Tracks employee information completeness.
 File: services/progress_monitor.py
 """
 from datetime import datetime
-from typing import Dict, List
-from application.database import Database, TaskStatus
+from typing import Dict
+from application.database import Database
 
 class ProgressMonitor:
-    """Monitors onboarding progress and tracks completion status."""
+    """Monitors employee onboarding information completeness."""
     
     def __init__(self, db: Database):
         self.db = db
     
-    def initialize_monitoring(self, employee_id: str) -> Dict:
-        """Initialize progress tracking for a new employee."""
-        employee = self.db.get_employee(employee_id)
-        if not employee:
-            raise ValueError(f"❌ Cannot initialize monitoring: Employee {employee_id} not found.")
-        
-        return {
-            "message": f"✅ Progress monitoring initialized for {employee.name}",
-            "employee_id": employee_id,
-            "success": True
-        }
-    
     def get_employee_progress(self, employee_id: str) -> Dict:
         """
-        Get detailed progress for a specific employee.
+        Check if employee has all required information filled out.
         
         Returns:
-            Dict with completion stats, percentage, and task breakdown with message
+            Dict with completion status and which fields are missing
         """
         employee = self.db.get_employee(employee_id)
         if not employee:
             raise ValueError(f"❌ Employee with ID '{employee_id}' not found.")
         
-        tasks = self.db.get_tasks_by_employee(employee_id)
+        # FIXED: Check personal_email (user-provided), NOT email (auto-generated)
+        required_fields = {
+            "name": employee.name,
+            "personal_email": employee.personal_email,  # CHANGED: from email to personal_email
+            "department": employee.department,
+            "joining_date": employee.joining_date,
+            "position": employee.position,
+            "phone": employee.phone,
+            "manager_id": employee.manager_id
+        }
+        # Note: 'email' (company email) is NOT checked - it's generated automatically
         
-        if not tasks:
-            return {
-                "employee_id": employee_id,
-                "employee_name": employee.name,
-                "total_tasks": 0,
-                "completed_tasks": 0,
-                "pending_tasks": 0,
-                "overdue_tasks": 0,
-                "completion_percentage": 0.0,
-                "status": "no_tasks_assigned",
-                "message": f"📋 No tasks assigned yet to {employee.name}. Tasks will appear once onboarding begins."
-            }
+        # Check which fields are filled
+        filled_fields = []
+        missing_fields = []
         
-        completed = len([t for t in tasks if t.status == TaskStatus.COMPLETED])
-        pending = len([t for t in tasks if t.status == TaskStatus.PENDING])
-        overdue = len([t for t in tasks if t.status == TaskStatus.OVERDUE])
+        for field_name, field_value in required_fields.items():
+            if field_value and str(field_value).strip():
+                filled_fields.append(field_name)
+            else:
+                missing_fields.append(field_name)
         
-        completion_percentage = (completed / len(tasks)) * 100 if tasks else 0
+        total_fields = len(required_fields)
+        filled_count = len(filled_fields)
+        completion_percentage = (filled_count / total_fields) * 100
         
-        # Determine status emoji and message
+        # Determine status
         if completion_percentage == 100:
-            status = "completed"
-            emoji = "🎉"
-            status_text = "All tasks completed!"
-        elif overdue > 0:
-            status = "needs_attention"
-            emoji = "⚠️"
-            status_text = f"{overdue} overdue task(s) - action required"
-        elif completion_percentage >= 75:
-            status = "on_track"
+            status = "complete"
             emoji = "✅"
-            status_text = "On track - great progress!"
-        elif completion_percentage >= 50:
-            status = "in_progress"
+            status_text = "All information complete"
+        elif completion_percentage >= 70:
+            status = "nearly_complete"
             emoji = "📊"
-            status_text = "Making good progress"
-        elif completion_percentage > 0:
-            status = "started"
-            emoji = "🚀"
-            status_text = "Just getting started"
+            status_text = "Almost complete - few fields missing"
+        elif completion_percentage >= 40:
+            status = "in_progress"
+            emoji = "⏳"
+            status_text = "Information partially filled"
         else:
-            status = "not_started"
-            emoji = "📝"
-            status_text = "Tasks assigned, ready to begin"
+            status = "incomplete"
+            emoji = "⚠️"
+            status_text = "Several required fields missing"
         
+        # Build message
         message = (
-            f"{emoji} **Progress Report: {employee.name}**\n\n"
-            f"📊 **Completion:** {completion_percentage:.1f}% ({completed}/{len(tasks)} tasks)\n"
-            f"⏳ Pending: {pending}\n"
+            f"{emoji} **Information Progress: {employee.name}**\n\n"
+            f"📊 **Completion:** {completion_percentage:.1f}% ({filled_count}/{total_fields} fields)\n\n"
         )
         
-        if overdue > 0:
-            message += f"⚠️ Overdue: {overdue}\n"
-        
-        message += f"\n💬 Status: {status_text}"
+        if missing_fields:
+            message += f"⚠️ **Missing Fields:**\n"
+            for field in missing_fields:
+                message += f"• {field.replace('_', ' ').title()}\n"
+            message += f"\n💬 Status: {status_text}\n"
+            message += f"\n📝 Please complete the missing information to proceed with onboarding."
+        else:
+            message += f"✅ **All Required Information Complete!**\n\n"
+            message += f"🎉 {employee.name}'s profile is fully set up and ready for onboarding."
         
         return {
             "employee_id": employee_id,
             "employee_name": employee.name,
-            "total_tasks": len(tasks),
-            "completed_tasks": completed,
-            "pending_tasks": pending,
-            "overdue_tasks": overdue,
+            "total_fields": total_fields,
+            "filled_fields": filled_count,
+            "missing_fields": missing_fields,
             "completion_percentage": round(completion_percentage, 1),
             "status": status,
-            "message": message
+            "message": message,
+            "is_complete": len(missing_fields) == 0
         }
     
-    def get_all_progress(self) -> Dict:
+    def get_all_employees_progress(self) -> Dict:
         """
-        Get progress summary for ALL employees.
-        Returns dict with progress details for each employee and overall summary.
+        Get information completeness for ALL employees.
+        
+        Returns:
+            Dict with progress details for each employee and overall summary
         """
         employees = self.db.get_all_employees()
         
@@ -119,210 +111,43 @@ class ProgressMonitor:
                 "employees": [],
                 "summary": {
                     "total_employees": 0,
-                    "completed": 0,
-                    "on_track": 0,
-                    "needs_attention": 0
+                    "complete": 0,
+                    "incomplete": 0
                 }
             }
         
         progress_list = []
-        completed_count = 0
-        on_track_count = 0
-        needs_attention_count = 0
+        complete_count = 0
+        incomplete_count = 0
         
         for employee in employees:
             progress = self.get_employee_progress(employee.id)
             progress_list.append(progress)
             
-            if progress["status"] == "completed":
-                completed_count += 1
-            elif progress["status"] in ["needs_attention"]:
-                needs_attention_count += 1
-            elif progress["status"] in ["on_track", "in_progress", "started"]:
-                on_track_count += 1
+            if progress["is_complete"]:
+                complete_count += 1
+            else:
+                incomplete_count += 1
         
         message = (
-            f"📊 **Overall Onboarding Progress Report**\n\n"
+            f"📊 **Overall Employee Information Status**\n\n"
             f"👥 Total Employees: {len(employees)}\n"
-            f"🎉 Completed: {completed_count}\n"
-            f"✅ On Track: {on_track_count}\n"
-            f"⚠️ Needs Attention: {needs_attention_count}\n\n"
+            f"✅ Complete Profiles: {complete_count}\n"
+            f"⚠️ Incomplete Profiles: {incomplete_count}\n\n"
         )
         
-        if needs_attention_count > 0:
-            message += f"⚠️ {needs_attention_count} employee(s) need immediate attention (overdue tasks)"
+        if incomplete_count > 0:
+            message += f"⚠️ {incomplete_count} employee(s) have incomplete information"
         else:
-            message += "✅ All employees are progressing well!"
+            message += "✅ All employee profiles are complete!"
         
         return {
             "message": message,
             "employees": progress_list,
             "summary": {
                 "total_employees": len(employees),
-                "completed": completed_count,
-                "on_track": on_track_count,
-                "needs_attention": needs_attention_count
-            }
-        }
-    
-    def get_pending_items(self, employee_id: str) -> Dict:
-        """Get all pending items (tasks and access requests) for an employee."""
-        employee = self.db.get_employee(employee_id)
-        if not employee:
-            raise ValueError(f"❌ Employee with ID '{employee_id}' not found.")
-        
-        pending_tasks = self.db.get_pending_tasks(employee_id)
-        access_requests = self.db.get_access_requests(employee_id)
-        
-        pending_access = [
-            ar for ar in access_requests 
-            if ar.status.value in ["pending", "in_progress"]
-        ]
-        
-        total_pending = len(pending_tasks) + len(pending_access)
-        
-        if total_pending == 0:
-            message = f"✅ Great! {employee.name} has no pending items. Everything is up to date."
-        else:
-            message = (
-                f"📋 **Pending Items for {employee.name}**\n\n"
-                f"⏳ Pending Tasks: {len(pending_tasks)}\n"
-                f"🔐 Pending Access Requests: {len(pending_access)}\n"
-                f"Total: {total_pending} item(s) need attention"
-            )
-        
-        return {
-            "employee_id": employee_id,
-            "employee_name": employee.name,
-            "message": message,
-            "pending_tasks": [
-                {
-                    "id": t.id,
-                    "title": t.title,
-                    "category": t.category,
-                    "due_date": t.due_date.isoformat() if t.due_date else None,
-                    "priority": t.priority
-                }
-                for t in pending_tasks
-            ],
-            "pending_access_requests": [
-                {
-                    "id": ar.id,
-                    "type": ar.access_type.value,
-                    "status": ar.status.value,
-                    "requested_at": ar.requested_at.isoformat() if ar.requested_at else None
-                }
-                for ar in pending_access
-            ],
-            "total_pending": total_pending
-        }
-    
-    def check_overdue_tasks(self, employee_id: str = None) -> Dict:
-        """Check for overdue tasks and return list with summary."""
-        if employee_id:
-            employee = self.db.get_employee(employee_id)
-            if not employee:
-                raise ValueError(f"❌ Employee with ID '{employee_id}' not found.")
-            tasks = self.db.get_tasks_by_employee(employee_id)
-            context = f"for {employee.name}"
-        else:
-            tasks = self.db.get_pending_tasks()
-            context = "across all employees"
-        
-        overdue = []
-        now = datetime.utcnow()
-        
-        for task in tasks:
-            if task.status == TaskStatus.PENDING and task.due_date and task.due_date < now:
-                # Update status to overdue
-                self.db.update_task(task.id, status=TaskStatus.OVERDUE)
-                
-                employee = self.db.get_employee(task.employee_id)
-                overdue.append({
-                    "task_id": task.id,
-                    "task_title": task.title,
-                    "employee_id": task.employee_id,
-                    "employee_name": employee.name if employee else "Unknown",
-                    "due_date": task.due_date.isoformat(),
-                    "days_overdue": (now - task.due_date).days
-                })
-        
-        if not overdue:
-            message = f"✅ No overdue tasks {context}. All tasks are on schedule!"
-        else:
-            message = (
-                f"⚠️ **Alert: {len(overdue)} Overdue Task(s) {context}**\n\n"
-                f"The following tasks require immediate attention:\n"
-            )
-            for item in overdue[:5]:
-                message += f"• {item['task_title']} ({item['employee_name']}) - {item['days_overdue']} day(s) overdue\n"
-            
-            if len(overdue) > 5:
-                message += f"• ... and {len(overdue) - 5} more\n"
-        
-        return {
-            "message": message,
-            "overdue_tasks": overdue,
-            "count": len(overdue)
-        }
-    
-    def get_completion_summary(self) -> Dict:
-        """Get overall completion summary across all employees."""
-        employees = self.db.get_all_employees()
-        
-        if not employees:
-            return {
-                "message": "ℹ️ No employees in the system yet.",
-                "summary": {
-                    "total_employees": 0,
-                    "completed_onboarding": 0,
-                    "in_progress": 0,
-                    "not_started": 0,
-                    "completion_rate": 0
-                }
-            }
-        
-        total_employees = len(employees)
-        completed_onboarding = 0
-        in_progress = 0
-        not_started = 0
-        
-        for employee in employees:
-            progress = self.get_employee_progress(employee.id)
-            
-            if progress["completion_percentage"] == 100:
-                completed_onboarding += 1
-            elif progress["completion_percentage"] > 0:
-                in_progress += 1
-            else:
-                not_started += 1
-        
-        completion_rate = (completed_onboarding / total_employees * 100) if total_employees > 0 else 0
-        
-        message = (
-            f"📈 **Onboarding Completion Summary**\n\n"
-            f"👥 Total Employees: {total_employees}\n"
-            f"🎉 Completed: {completed_onboarding} ({completion_rate:.1f}%)\n"
-            f"🔄 In Progress: {in_progress}\n"
-            f"📝 Not Started: {not_started}\n\n"
-        )
-        
-        if completion_rate >= 80:
-            message += "🌟 Excellent! Most employees have completed onboarding."
-        elif completion_rate >= 60:
-            message += "✅ Good progress overall. Keep up the momentum!"
-        elif completion_rate >= 40:
-            message += "📊 Moderate progress. Some employees need encouragement."
-        else:
-            message += "⚠️ Many employees are still in early stages. Consider sending reminders."
-        
-        return {
-            "message": message,
-            "summary": {
-                "total_employees": total_employees,
-                "completed_onboarding": completed_onboarding,
-                "in_progress": in_progress,
-                "not_started": not_started,
-                "completion_rate": round(completion_rate, 1)
+                "complete": complete_count,
+                "incomplete": incomplete_count,
+                "completion_rate": round((complete_count / len(employees)) * 100, 1) if employees else 0
             }
         }

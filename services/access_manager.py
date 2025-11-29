@@ -1,10 +1,4 @@
-"""
-Service Module 2: Access Setup
-Sends automated requests for system credentials, email accounts, 
-and workspace permissions via connected IT APIs.
-Uses MailSlurp API to create REAL email addresses.
-File: services/access_manager.py
-"""
+
 from datetime import datetime
 from typing import List, Dict
 import asyncio
@@ -12,7 +6,7 @@ import random
 import string
 import os
 import mailslurp_client
-from application.database import Database, AccessRequest, AccessType, AccessStatus
+from application.database import Database
 
 class AccessManager:
     """Manages system access setup for new employees."""
@@ -109,45 +103,6 @@ class AccessManager:
                 "error": str(e)
             }
     
-    def get_mailslurp_messages(self, inbox_id: str) -> Dict:
-        """
-        Retrieve emails from a MailSlurp inbox.
-        
-        Args:
-            inbox_id: The inbox ID from MailSlurp
-            
-        Returns:
-            Dict with list of emails
-        """
-        try:
-            configuration = mailslurp_client.Configuration()
-            configuration.api_key['x-api-key'] = self.mailslurp_api_key
-            
-            with mailslurp_client.ApiClient(configuration) as api_client:
-                inbox_controller = mailslurp_client.InboxControllerApi(api_client)
-                emails = inbox_controller.get_emails(inbox_id=inbox_id)
-                
-                return {
-                    "success": True,
-                    "count": len(emails),
-                    "emails": [
-                        {
-                            "id": email.id,
-                            "subject": email.subject,
-                            "from": email.from_,
-                            "to": email.to,
-                            "created_at": email.created_at
-                        }
-                        for email in emails
-                    ]
-                }
-                
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
     async def generate_real_email(self, name: str) -> Dict:
         """
         Generate a REAL working email address using MailSlurp.
@@ -184,14 +139,13 @@ class AccessManager:
             employee_id: ID of the employee
             
         Returns:
-            Dict with access requests, credentials, and summary message
+            Dict with credentials and summary message
         """
         employee = self.db.get_employee(employee_id)
         if not employee:
             raise ValueError(f"❌ Cannot setup access: Employee {employee_id} not found in the system.")
         
         first_name = employee.name.split()[0]
-        access_requests = []
         credentials = {}
         
         print(f"\n{'='*60}")
@@ -200,9 +154,20 @@ class AccessManager:
         
         # 1. Email Account - Create REAL working email via MailSlurp
         print("📧 Step 1/3: Creating email account...")
-        email_result = await self.request_email_account(employee_id)
-        access_requests.append(email_result['request'])
-        credentials['email'] = email_result['credentials']
+        email_result = await self.generate_real_email(employee.name)
+        email_password = self._generate_password(14)
+        
+        credentials['email'] = {
+            "email_address": email_result["email"],
+            "password": email_password,
+            "service": email_result.get("service", "Fallback"),
+            "inbox_id": email_result.get("inbox_id"),
+            "inbox_name": email_result.get("inbox_name"),
+            "access_url": email_result.get("access_url"),
+            "web_url": email_result.get("web_url"),
+            "note": email_result.get("note"),
+            "is_fallback": not email_result["success"]
+        }
         
         # 2. Update employee record with the generated email
         self.db.update_employee(
@@ -212,15 +177,33 @@ class AccessManager:
         
         # 3. System Credentials (VPN, building access, etc.)
         print("\n🔐 Step 2/3: Generating system credentials...")
-        system_result = await self.request_system_credentials(employee_id)
-        access_requests.append(system_result['request'])
-        credentials['system'] = system_result['credentials']
+        username = self._generate_username(employee.name)
+        system_password = self._generate_password(16)
+        badge_number = f"{random.randint(10000, 99999)}"
+        
+        print(f"   ✓ Generated username: {username}")
+        print(f"   ✓ Generated password: {system_password}")
+        print(f"   ✓ Assigned badge: #{badge_number}")
+        
+        credentials['system'] = {
+            "username": username,
+            "password": system_password,
+            "badge_number": badge_number,
+            "vpn_enabled": True,
+            "sso_enabled": True
+        }
+        
+        await asyncio.sleep(0.3)
         
         # 4. Workspace Permissions (based on department)
         print(f"\n🔧 Step 3/3: Setting up workspace access for {employee.department}...")
-        workspace_result = await self.request_workspace_access(employee_id, employee.department)
-        access_requests.append(workspace_result['request'])
-        credentials['workspace'] = workspace_result['access_list']
+        access_details = self._get_department_access(employee.department)
+        
+        print(f"   ✓ Granting access to {len(access_details)} applications")
+        
+        credentials['workspace'] = access_details
+        
+        await asyncio.sleep(0.2)
         
         # Print credentials clearly
         print(f"\n{'='*60}")
@@ -317,7 +300,6 @@ class AccessManager:
             message += f"• MailSlurp inbox is permanent - emails stored indefinitely\n"
         
         return {
-            "access_requests": access_requests,
             "credentials": credentials,
             "message": message,
             "success": True,
@@ -330,127 +312,6 @@ class AccessManager:
             "system_username": credentials['system']['username'],
             "system_password": credentials['system']['password'],
             "is_fallback": is_fallback
-        }
-    
-    async def request_email_account(self, employee_id: str) -> Dict:
-        """Request creation of a REAL email account using MailSlurp API."""
-        employee = self.db.get_employee(employee_id)
-        
-        access_request = AccessRequest(
-            employee_id=employee_id,
-            access_type=AccessType.EMAIL,
-            status=AccessStatus.PENDING,
-            details=f"Creating REAL email account for {employee.name} via MailSlurp..."
-        )
-        
-        access_request = self.db.create_access_request(access_request)
-        
-        # Create REAL email using MailSlurp
-        email_result = await self.generate_real_email(employee.name)
-        email_password = self._generate_password(14)
-        
-        # Even if email service fails, we continue with fallback
-        if email_result["success"]:
-            status = AccessStatus.COMPLETED
-            details = f"✅ Real email created: {email_result['email']} via {email_result['service']} (Inbox: {email_result.get('inbox_id')})"
-        else:
-            # Use fallback but mark as completed (not failed)
-            status = AccessStatus.COMPLETED
-            details = f"⚠️ Using fallback email: {email_result['email']} (Email service temporarily unavailable)"
-            print(f"⚠️ Email service error: {email_result.get('error')}")
-        
-        # Mark as completed
-        self.db.update_access_request(
-            access_request.id,
-            status=status,
-            completed_at=datetime.utcnow(),
-            details=details
-        )
-        
-        credentials = {
-            "email_address": email_result["email"],
-            "password": email_password,
-            "service": email_result.get("service", "Fallback"),
-            "inbox_id": email_result.get("inbox_id"),
-            "inbox_name": email_result.get("inbox_name"),
-            "access_url": email_result.get("access_url"),
-            "web_url": email_result.get("web_url"),
-            "note": email_result.get("note"),
-            "is_fallback": not email_result["success"]
-        }
-        
-        return {
-            "request": access_request,
-            "credentials": credentials
-        }
-    
-    async def request_system_credentials(self, employee_id: str) -> Dict:
-        """Request system credentials with generated username and password."""
-        employee = self.db.get_employee(employee_id)
-        
-        username = self._generate_username(employee.name)
-        system_password = self._generate_password(16)
-        badge_number = f"{random.randint(10000, 99999)}"
-        
-        print(f"   ✓ Generated username: {username}")
-        print(f"   ✓ Generated password: {system_password}")
-        print(f"   ✓ Assigned badge: #{badge_number}")
-        
-        access_request = AccessRequest(
-            employee_id=employee_id,
-            access_type=AccessType.SYSTEM_CREDENTIALS,
-            status=AccessStatus.PENDING,
-            details=f"Setting up system credentials for username: {username}"
-        )
-        
-        access_request = self.db.create_access_request(access_request)
-        await asyncio.sleep(0.3)
-        
-        self.db.update_access_request(
-            access_request.id,
-            status=AccessStatus.COMPLETED,
-            completed_at=datetime.utcnow(),
-            details=f"✅ System credentials created: Username '{username}', VPN enabled, SSO configured, Badge #{badge_number}"
-        )
-        
-        return {
-            "request": access_request,
-            "credentials": {
-                "username": username,
-                "password": system_password,
-                "badge_number": badge_number,
-                "vpn_enabled": True,
-                "sso_enabled": True
-            }
-        }
-    
-    async def request_workspace_access(self, employee_id: str, department: str) -> Dict:
-        """Request workspace and application access based on department."""
-        employee = self.db.get_employee(employee_id)
-        access_details = self._get_department_access(department)
-        
-        print(f"   ✓ Granting access to {len(access_details)} applications")
-        
-        access_request = AccessRequest(
-            employee_id=employee_id,
-            access_type=AccessType.WORKSPACE,
-            status=AccessStatus.PENDING,
-            details=f"Granting {department} department access to: {', '.join(access_details)}"
-        )
-        
-        access_request = self.db.create_access_request(access_request)
-        await asyncio.sleep(0.2)
-        
-        self.db.update_access_request(
-            access_request.id,
-            status=AccessStatus.COMPLETED,
-            completed_at=datetime.utcnow(),
-            details=f"✅ Workspace access granted for {len(access_details)} applications"
-        )
-        
-        return {
-            "request": access_request,
-            "access_list": access_details
         }
     
     def _get_department_access(self, department: str) -> List[str]:
@@ -466,61 +327,3 @@ class AccessManager:
             "Legal": ["DocuSign", "Clio", "Slack", "Google Workspace"]
         }
         return access_map.get(department, ["Slack", "Google Workspace"])
-    
-    def get_access_status(self, employee_id: str) -> Dict:
-        """Get current status of all access requests for an employee."""
-        employee = self.db.get_employee(employee_id)
-        if not employee:
-            raise ValueError(f"❌ Employee with ID '{employee_id}' not found.")
-        
-        requests = self.db.get_access_requests(employee_id)
-        
-        completed_count = len([r for r in requests if r.status == AccessStatus.COMPLETED])
-        pending_count = len([r for r in requests if r.status == AccessStatus.PENDING])
-        failed_count = len([r for r in requests if r.status == AccessStatus.FAILED])
-        
-        if completed_count == len(requests) and len(requests) > 0:
-            status_message = f"✅ All access setup completed for {employee.name}"
-        elif pending_count > 0:
-            status_message = f"⏳ Access setup in progress for {employee.name} ({completed_count}/{len(requests)} completed)"
-        elif failed_count > 0:
-            status_message = f"⚠️ Some access requests failed for {employee.name}"
-        else:
-            status_message = f"📋 No access requests found for {employee.name}"
-        
-        return {
-            "employee_id": employee_id,
-            "employee_name": employee.name,
-            "employee_email": employee.email,
-            "total_requests": len(requests),
-            "completed": completed_count,
-            "pending": pending_count,
-            "failed": failed_count,
-            "message": status_message,
-            "requests": [r.to_dict() for r in requests]
-        }
-    
-    def retry_failed_access(self, request_id: str) -> Dict:
-        """Retry a failed access request."""
-        request = self.db.update_access_request(
-            request_id,
-            status=AccessStatus.PENDING,
-            error_message=None
-        )
-        
-        if not request:
-            raise ValueError(f"❌ Access request with ID '{request_id}' not found.")
-        
-        employee = self.db.get_employee(request.employee_id)
-        
-        message = (
-            f"🔄 Retrying failed access request for {employee.name}\n"
-            f"• Request Type: {request.access_type.value}\n"
-            f"• Status: Pending (retry in progress)\n"
-        )
-        
-        return {
-            "request": request,
-            "message": message,
-            "success": True
-        }

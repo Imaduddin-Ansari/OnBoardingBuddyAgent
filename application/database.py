@@ -1,7 +1,3 @@
-"""
-Database module with SQLAlchemy models and operations
-File: database.py
-"""
 from sqlalchemy import create_engine, Column, String, DateTime, Boolean, Integer, Text, Enum as SQLEnum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -16,29 +12,8 @@ Base = declarative_base()
 # ENUMS
 # ============================================================================
 
-class TaskStatus(str, enum.Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    OVERDUE = "overdue"
-
-class AccessType(str, enum.Enum):
-    EMAIL = "email"
-    SYSTEM_CREDENTIALS = "system_credentials"
-    WORKSPACE = "workspace"
-    VPN = "vpn"
-    BUILDING = "building_access"
-
-class AccessStatus(str, enum.Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
 class NotificationType(str, enum.Enum):
     WELCOME = "welcome"
-    TASK_REMINDER = "task_reminder"
-    TASK_OVERDUE = "task_overdue"
     ACCESS_GRANTED = "access_granted"
     COMPLETION = "completion"
 
@@ -51,7 +26,8 @@ class Employee(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False)
-    email = Column(String, nullable=False, unique=True)
+    personal_email = Column(String, nullable=False, unique=True)  # NEW: User-provided email
+    email = Column(String, unique=True)  # CHANGED: Generated company email (nullable until generated)
     phone = Column(String)
     department = Column(String, nullable=False)
     position = Column(String)
@@ -65,7 +41,8 @@ class Employee(Base):
         return {
             "id": self.id,
             "name": self.name,
-            "email": self.email,
+            "personal_email": self.personal_email,
+            "email": self.email,  # Company email
             "phone": self.phone,
             "department": self.department,
             "position": self.position,
@@ -74,60 +51,6 @@ class Employee(Base):
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
-        }
-
-class Task(Base):
-    __tablename__ = "tasks"
-    
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    employee_id = Column(String, nullable=False)
-    title = Column(String, nullable=False)
-    description = Column(Text)
-    category = Column(String)  # policy, equipment, training, etc.
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.PENDING)
-    priority = Column(Integer, default=1)  # 1=high, 2=medium, 3=low
-    due_date = Column(DateTime)
-    completed_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "employee_id": self.employee_id,
-            "title": self.title,
-            "description": self.description,
-            "category": self.category,
-            "status": self.status.value if isinstance(self.status, TaskStatus) else self.status,
-            "priority": self.priority,
-            "due_date": self.due_date.isoformat() if self.due_date else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
-        }
-
-class AccessRequest(Base):
-    __tablename__ = "access_requests"
-    
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    employee_id = Column(String, nullable=False)
-    access_type = Column(SQLEnum(AccessType), nullable=False)
-    status = Column(SQLEnum(AccessStatus), default=AccessStatus.PENDING)
-    requested_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime)
-    details = Column(Text)
-    error_message = Column(Text)
-    
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "employee_id": self.employee_id,
-            "access_type": self.access_type.value if isinstance(self.access_type, AccessType) else self.access_type,
-            "status": self.status.value if isinstance(self.status, AccessStatus) else self.status,
-            "requested_at": self.requested_at.isoformat() if self.requested_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "details": self.details,
-            "error_message": self.error_message
         }
 
 class Notification(Base):
@@ -169,8 +92,12 @@ class Database:
     def get_session(self) -> Session:
         return self.SessionLocal()
     
-    # Employee operations
+    # ============================================================================
+    # EMPLOYEE OPERATIONS
+    # ============================================================================
+    
     def create_employee(self, employee: Employee) -> Employee:
+        """Create a new employee record."""
         session = self.get_session()
         try:
             session.add(employee)
@@ -181,13 +108,31 @@ class Database:
             session.close()
     
     def get_employee(self, employee_id: str) -> Optional[Employee]:
+        """Get employee by ID."""
         session = self.get_session()
         try:
             return session.query(Employee).filter(Employee.id == employee_id).first()
         finally:
             session.close()
     
+    def get_employee_by_email(self, email: str) -> Optional[Employee]:
+        """Get employee by email address."""
+        session = self.get_session()
+        try:
+            return session.query(Employee).filter(Employee.email == email).first()
+        finally:
+            session.close()
+
+    def get_employee_by_personal_email(self, personal_email: str) -> Optional[Employee]:
+        """Get employee by personal email address."""
+        session = self.get_session()
+        try:
+            return session.query(Employee).filter(Employee.personal_email == personal_email).first()
+        finally:
+            session.close()
+    
     def get_all_employees(self) -> List[Employee]:
+        """Get all employees."""
         session = self.get_session()
         try:
             return session.query(Employee).all()
@@ -195,99 +140,40 @@ class Database:
             session.close()
     
     def update_employee(self, employee_id: str, **kwargs) -> Optional[Employee]:
+        """Update employee information."""
         session = self.get_session()
         try:
             employee = session.query(Employee).filter(Employee.id == employee_id).first()
             if employee:
                 for key, value in kwargs.items():
-                    setattr(employee, key, value)
+                    if hasattr(employee, key):
+                        setattr(employee, key, value)
+                employee.updated_at = datetime.utcnow()
                 session.commit()
                 session.refresh(employee)
             return employee
         finally:
             session.close()
     
-    # Task operations
-    def create_task(self, task: Task) -> Task:
+    def delete_employee(self, employee_id: str) -> bool:
+        """Delete an employee record."""
         session = self.get_session()
         try:
-            session.add(task)
-            session.commit()
-            session.refresh(task)
-            return task
-        finally:
-            session.close()
-    
-    def get_task(self, task_id: str) -> Optional[Task]:
-        session = self.get_session()
-        try:
-            return session.query(Task).filter(Task.id == task_id).first()
-        finally:
-            session.close()
-    
-    def get_tasks_by_employee(self, employee_id: str) -> List[Task]:
-        session = self.get_session()
-        try:
-            return session.query(Task).filter(Task.employee_id == employee_id).all()
-        finally:
-            session.close()
-    
-    def get_pending_tasks(self, employee_id: str = None) -> List[Task]:
-        session = self.get_session()
-        try:
-            query = session.query(Task).filter(Task.status == TaskStatus.PENDING)
-            if employee_id:
-                query = query.filter(Task.employee_id == employee_id)
-            return query.all()
-        finally:
-            session.close()
-    
-    def update_task(self, task_id: str, **kwargs) -> Optional[Task]:
-        session = self.get_session()
-        try:
-            task = session.query(Task).filter(Task.id == task_id).first()
-            if task:
-                for key, value in kwargs.items():
-                    setattr(task, key, value)
+            employee = session.query(Employee).filter(Employee.id == employee_id).first()
+            if employee:
+                session.delete(employee)
                 session.commit()
-                session.refresh(task)
-            return task
+                return True
+            return False
         finally:
             session.close()
     
-    # Access request operations
-    def create_access_request(self, access_request: AccessRequest) -> AccessRequest:
-        session = self.get_session()
-        try:
-            session.add(access_request)
-            session.commit()
-            session.refresh(access_request)
-            return access_request
-        finally:
-            session.close()
+    # ============================================================================
+    # NOTIFICATION OPERATIONS
+    # ============================================================================
     
-    def get_access_requests(self, employee_id: str) -> List[AccessRequest]:
-        session = self.get_session()
-        try:
-            return session.query(AccessRequest).filter(AccessRequest.employee_id == employee_id).all()
-        finally:
-            session.close()
-    
-    def update_access_request(self, request_id: str, **kwargs) -> Optional[AccessRequest]:
-        session = self.get_session()
-        try:
-            request = session.query(AccessRequest).filter(AccessRequest.id == request_id).first()
-            if request:
-                for key, value in kwargs.items():
-                    setattr(request, key, value)
-                session.commit()
-                session.refresh(request)
-            return request
-        finally:
-            session.close()
-    
-    # Notification operations
     def create_notification(self, notification: Notification) -> Notification:
+        """Create a new notification record."""
         session = self.get_session()
         try:
             session.add(notification)
@@ -297,7 +183,24 @@ class Database:
         finally:
             session.close()
     
+    def get_notification(self, notification_id: str) -> Optional[Notification]:
+        """Get notification by ID."""
+        session = self.get_session()
+        try:
+            return session.query(Notification).filter(Notification.id == notification_id).first()
+        finally:
+            session.close()
+    
+    def get_notifications_by_employee(self, employee_id: str) -> List[Notification]:
+        """Get all notifications for an employee."""
+        session = self.get_session()
+        try:
+            return session.query(Notification).filter(Notification.employee_id == employee_id).all()
+        finally:
+            session.close()
+    
     def get_pending_notifications(self) -> List[Notification]:
+        """Get all pending notifications."""
         session = self.get_session()
         try:
             return session.query(Notification).filter(Notification.status == "pending").all()
@@ -305,14 +208,61 @@ class Database:
             session.close()
     
     def update_notification(self, notification_id: str, **kwargs) -> Optional[Notification]:
+        """Update a notification record."""
         session = self.get_session()
         try:
             notification = session.query(Notification).filter(Notification.id == notification_id).first()
             if notification:
                 for key, value in kwargs.items():
-                    setattr(notification, key, value)
+                    if hasattr(notification, key):
+                        setattr(notification, key, value)
                 session.commit()
                 session.refresh(notification)
             return notification
+        finally:
+            session.close()
+    
+    def delete_notification(self, notification_id: str) -> bool:
+        """Delete a notification record."""
+        session = self.get_session()
+        try:
+            notification = session.query(Notification).filter(Notification.id == notification_id).first()
+            if notification:
+                session.delete(notification)
+                session.commit()
+                return True
+            return False
+        finally:
+            session.close()
+    
+    # ============================================================================
+    # UTILITY OPERATIONS
+    # ============================================================================
+    
+    def clear_all_data(self):
+        """Clear all data from database (for testing purposes)."""
+        session = self.get_session()
+        try:
+            session.query(Notification).delete()
+            session.query(Employee).delete()
+            session.commit()
+        finally:
+            session.close()
+    
+    def get_database_stats(self) -> dict:
+        """Get statistics about the database."""
+        session = self.get_session()
+        try:
+            total_employees = session.query(Employee).count()
+            total_notifications = session.query(Notification).count()
+            pending_notifications = session.query(Notification).filter(
+                Notification.status == "pending"
+            ).count()
+            
+            return {
+                "total_employees": total_employees,
+                "total_notifications": total_notifications,
+                "pending_notifications": pending_notifications
+            }
         finally:
             session.close()
