@@ -1,4 +1,3 @@
-
 from datetime import datetime
 from typing import List, Dict
 import asyncio
@@ -17,6 +16,11 @@ class AccessManager:
         
         # MailSlurp API Configuration
         self.mailslurp_api_key = os.getenv("MAILSLURP_API_KEY")
+        
+        # Validate API key on initialization
+        if not self.mailslurp_api_key:
+            print("⚠️  Warning: MAILSLURP_API_KEY not found in environment variables")
+            print("    Set it with: export MAILSLURP_API_KEY='your-api-key'")
     
     def _generate_username(self, name: str) -> str:
         """Generate username from employee name."""
@@ -46,13 +50,19 @@ class AccessManager:
         
         return ''.join(password_list)
     
-    def _create_mailslurp_inbox(self, name: str) -> Dict:
+    def _create_mailslurp_inbox_sync(self, name: str) -> Dict:
         """
-        Create a REAL email inbox using MailSlurp API.
+        Create a REAL email inbox using MailSlurp API (synchronous).
         
         Returns:
             Dict with email address, inbox_id, and access details
         """
+        if not self.mailslurp_api_key:
+            return {
+                "success": False,
+                "error": "MAILSLURP_API_KEY not configured"
+            }
+        
         try:
             print("🔄 Creating real email address via MailSlurp...")
             
@@ -60,6 +70,7 @@ class AccessManager:
             configuration = mailslurp_client.Configuration()
             configuration.api_key['x-api-key'] = self.mailslurp_api_key
             
+            # Use context manager properly
             with mailslurp_client.ApiClient(configuration) as api_client:
                 # Create an inbox
                 inbox_controller = mailslurp_client.InboxControllerApi(api_client)
@@ -68,7 +79,7 @@ class AccessManager:
                 parts = name.strip().split()
                 inbox_name = f"{parts[0]}-{parts[-1] if len(parts) > 1 else 'employee'}".lower()
                 
-                # Create inbox
+                # Create inbox with proper parameters
                 inbox = inbox_controller.create_inbox(
                     name=inbox_name,
                     description=f"Corporate email for {name}"
@@ -82,49 +93,75 @@ class AccessManager:
                 return {
                     "success": True,
                     "email": email_address,
-                    "inbox_id": inbox_id,
+                    "inbox_id": str(inbox_id),
                     "inbox_name": inbox_name,
                     "service": "MailSlurp",
                     "access_url": f"https://app.mailslurp.com/inboxes/{inbox_id}",
-                    "web_url": f"https://app.mailslurp.com/",
+                    "web_url": "https://app.mailslurp.com/",
                     "note": "Permanent inbox - emails will be stored indefinitely"
                 }
                 
         except mailslurp_client.ApiException as e:
-            print(f"❌ MailSlurp API error: {e.status} - {e.reason}")
+            error_msg = f"MailSlurp API error: {e.status}"
+            if hasattr(e, 'reason') and e.reason:
+                error_msg += f" - {e.reason}"
+            if hasattr(e, 'body') and e.body:
+                error_msg += f" - {e.body}"
+            print(f"❌ {error_msg}")
             return {
                 "success": False,
-                "error": f"MailSlurp API error: {e.status} - {e.reason}"
+                "error": error_msg
             }
         except Exception as e:
-            print(f"❌ Error creating email: {str(e)}")
+            error_msg = f"Error creating email: {str(e)}"
+            print(f"❌ {error_msg}")
             return {
                 "success": False,
-                "error": str(e)
+                "error": error_msg
             }
     
     async def generate_real_email(self, name: str) -> Dict:
         """
         Generate a REAL working email address using MailSlurp.
+        Runs the synchronous MailSlurp call in a thread pool to avoid blocking.
+        Uses timeout to prevent hanging.
         
         Returns:
             Dict with email details
         """
-        # Use MailSlurp to create permanent inbox
-        result = self._create_mailslurp_inbox(name)
+        try:
+            # Run the synchronous MailSlurp call in a thread pool with timeout
+            loop = asyncio.get_event_loop()
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,  # Uses default executor (ThreadPoolExecutor)
+                    self._create_mailslurp_inbox_sync,
+                    name
+                ),
+                timeout=10.0  # 10 second timeout
+            )
+            
+            if result["success"]:
+                return result
+            
+            # If MailSlurp fails, use fallback
+            print(f"⚠️  MailSlurp unavailable: {result.get('error', 'Unknown error')}")
+            print(f"    Using fallback email generation...")
+            
+        except asyncio.TimeoutError:
+            print(f"⚠️  MailSlurp API timeout (>10s)")
+            print(f"    Using fallback email generation...")
+        except Exception as e:
+            print(f"⚠️  Exception during email creation: {str(e)}")
+            print(f"    Using fallback email generation...")
         
-        if result["success"]:
-            return result
-        
-        # If MailSlurp fails, use fallback
-        print(f"⚠️ MailSlurp unavailable, using fallback email...")
-        
+        # Fallback email generation
         parts = name.strip().split()
-        fallback_email = f"{parts[0].lower()}.{parts[-1].lower() if len(parts) > 1 else 'employee'}@fallback.local"
+        fallback_email = f"{parts[0].lower()}.{parts[-1].lower() if len(parts) > 1 else 'employee'}@{self.company_domain}"
         
         return {
             "success": False,
-            "error": "MailSlurp service unavailable",
+            "error": "MailSlurp service unavailable or timeout",
             "email": fallback_email,
             "service": "Fallback",
             "note": "Email service temporarily unavailable. Using fallback address."
