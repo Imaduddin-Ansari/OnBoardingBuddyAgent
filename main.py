@@ -600,10 +600,10 @@ def parse_date_string(date_str: str) -> datetime:
         print(f"Warning: Could not parse date '{date_str}': {e}")
         return None
 
-
 def parse_input(text: str, extra: dict) -> dict:
     """
     Parse natural language input and extract structured data.
+    Supports both structured extra dict and row-based text format.
     """
     if extra and any(key in extra for key in ["name", "email", "personal_email", "employee_id", "department"]):
         # Convert joining_date string to datetime if present
@@ -615,6 +615,11 @@ def parse_input(text: str, extra: dict) -> dict:
             extra["personal_email"] = extra["email"]
         return extra
     
+    # Try row-based format first (Name: value, Personal Email: value, etc.)
+    row_based_data = parse_row_based_format(text)
+    if row_based_data:
+        return row_based_data
+    
     # Otherwise, parse from natural language text
     result = {}
     text_lower = text.lower()
@@ -624,7 +629,7 @@ def parse_input(text: str, extra: dict) -> dict:
     if name:
         result["name"] = name
     
-# Extract email - store as personal_email
+    # Extract email - store as personal_email
     email = extract_email_from_text(text)
     if email:
         result["personal_email"] = email
@@ -666,6 +671,78 @@ def parse_input(text: str, extra: dict) -> dict:
     return result
 
 
+def parse_row_based_format(text: str) -> dict:
+    """
+    Parse row-based format like:
+    Name: Huzaifa
+    Personal Email: i222669@nu.edu.pk
+    Department: Software Developer
+    """
+    result = {}
+    
+    # Field mappings (case-insensitive)
+    field_mappings = {
+        'name': 'name',
+        'personal email': 'personal_email',
+        'personal_email': 'personal_email',
+        'email': 'personal_email',
+        'department': 'department',
+        'position': 'position',
+        'phone': 'phone',
+        'phone number': 'phone',
+        'phone_number': 'phone',
+        'contact': 'phone',
+        'contact number': 'phone',
+        'manager id': 'manager_id',
+        'manager_id': 'manager_id',
+        'joining date': 'joining_date',
+        'joining_date': 'joining_date',
+        'start date': 'joining_date',
+        'employee id': 'employee_id',
+        'employee_id': 'employee_id'
+    }
+    
+    # Split text into lines
+    lines = text.strip().split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line or ':' not in line:
+            continue
+        
+        # Split on first colon
+        parts = line.split(':', 1)
+        if len(parts) != 2:
+            continue
+        
+        field_name = parts[0].strip().lower()
+        field_value = parts[1].strip()
+        
+        # Skip empty values
+        if not field_value:
+            continue
+        
+        # Map field name to internal field
+        internal_field = field_mappings.get(field_name)
+        if internal_field:
+            if internal_field == 'joining_date':
+                # Parse date string to datetime
+                result[internal_field] = parse_date_string(field_value)
+            else:
+                result[internal_field] = field_value
+    
+    # If we found at least one field, set defaults for missing fields
+    if result:
+        # Set default joining date if not provided
+        if 'joining_date' not in result and 'name' in result:
+            result['joining_date'] = get_next_monday()
+        
+        # Set manager_id based on department if not provided
+        if 'department' in result and 'manager_id' not in result:
+            result['manager_id'] = get_manager_for_department(result['department'])
+    
+    return result if result else None
+    
 def extract_date(text_lower: str) -> str:
     """Extract or infer joining date from text - returns ISO string."""
     # Pattern 1: YYYY-MM-DD or YYYY/MM/DD
