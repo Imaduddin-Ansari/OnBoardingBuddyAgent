@@ -1,8 +1,3 @@
-"""
-Service Module 4: Progress Monitoring
-Tracks employee information completeness.
-File: services/progress_monitor.py
-"""
 from datetime import datetime
 from typing import Dict
 from application.database import Database
@@ -24,19 +19,15 @@ class ProgressMonitor:
         if not employee:
             raise ValueError(f"❌ Employee with ID '{employee_id}' not found.")
         
-        # FIXED: Check personal_email (user-provided), NOT email (auto-generated)
         required_fields = {
             "name": employee.name,
-            "personal_email": employee.personal_email,  # CHANGED: from email to personal_email
+            "personal_email": employee.personal_email,
             "department": employee.department,
             "joining_date": employee.joining_date,
             "position": employee.position,
             "phone": employee.phone,
             "manager_id": employee.manager_id
         }
-        # Note: 'email' (company email) is NOT checked - it's generated automatically
-        
-        # Check which fields are filled
         filled_fields = []
         missing_fields = []
         
@@ -49,8 +40,6 @@ class ProgressMonitor:
         total_fields = len(required_fields)
         filled_count = len(filled_fields)
         completion_percentage = (filled_count / total_fields) * 100
-        
-        # Determine status
         if completion_percentage == 100:
             status = "complete"
             emoji = "✅"
@@ -67,8 +56,6 @@ class ProgressMonitor:
             status = "incomplete"
             emoji = "⚠️"
             status_text = "Several required fields missing"
-        
-        # Build message
         message = (
             f"{emoji} **Information Progress: {employee.name}**\n\n"
             f"📊 **Completion:** {completion_percentage:.1f}% ({filled_count}/{total_fields} fields)\n\n"

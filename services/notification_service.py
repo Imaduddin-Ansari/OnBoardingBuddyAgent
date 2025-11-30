@@ -1,8 +1,3 @@
-"""
-Service Module 5: Notification Service
-Sends welcome email notifications to new employees.
-File: services/notification_service.py
-"""
 from datetime import datetime
 from typing import Dict
 import smtplib
@@ -13,7 +8,6 @@ import asyncio
 from dotenv import load_dotenv
 from application.database import Database, Notification, NotificationType
 
-# Load environment variables
 load_dotenv()
 
 class NotificationService:
@@ -21,18 +15,12 @@ class NotificationService:
     
     def __init__(self, db: Database):
         self.db = db
-        
-        # Email configuration - using environment variables
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
         self.sender_email = os.getenv("SENDER_EMAIL")
         self.sender_password = os.getenv("SENDER_PASSWORD")
         self.sender_name = os.getenv("SENDER_NAME", "HR Team")
-        
-        # For testing without real email
         self.test_mode = os.getenv("EMAIL_TEST_MODE", "true").lower() == "true"
-        
-        # Validate email configuration
         if not self.test_mode:
             if not all([self.sender_email, self.sender_password]):
                 print("⚠️ Warning: SENDER_EMAIL and SENDER_PASSWORD not set. Running in test mode.")
@@ -55,7 +43,6 @@ class NotificationService:
         
         first_name = employee.name.split()[0]
         
-        # Create notification record
         notification = Notification(
             employee_id=employee_id,
             type=NotificationType.WELCOME,
@@ -66,17 +53,15 @@ class NotificationService:
         
         notification = self.db.create_notification(notification)
         
-        # Send actual email with timeout
         try:
             if not self.test_mode:
-                # Use timeout for SMTP operations
                 await asyncio.wait_for(
                     self._send_email_async(
-                        to_email=employee.personal_email,  # Send to personal email
+                        to_email=employee.personal_email,
                         subject=notification.subject,
                         body=notification.message
                     ),
-                    timeout=10.0  # 10 second timeout
+                    timeout=10.0
                 )
                 delivery_status = "sent via email"
                 status_emoji = "✅"
@@ -86,7 +71,6 @@ class NotificationService:
                 delivery_status = "sent (test mode)"
                 status_emoji = "✅"
             
-            # Mark as sent
             self.db.update_notification(
                 notification.id,
                 status="sent",
@@ -108,7 +92,6 @@ class NotificationService:
             )
             
         except asyncio.TimeoutError:
-            # Timeout - mark as sent anyway (it might have gone through)
             print(f"⚠️ Email sending timeout for {employee.personal_email} - marked as sent")
             self.db.update_notification(
                 notification.id,
@@ -131,11 +114,9 @@ class NotificationService:
             )
             
         except Exception as e:
-            # Even on error, mark as sent in test mode or log error
             print(f"⚠️ Email error for {employee.personal_email}: {str(e)}")
             
             if self.test_mode:
-                # In test mode, always succeed
                 self.db.update_notification(
                     notification.id,
                     status="sent",
@@ -156,7 +137,6 @@ class NotificationService:
                     f"• Next steps for onboarding"
                 )
             else:
-                # In production, mark as failed but don't raise
                 self.db.update_notification(
                     notification.id,
                     status="failed",
@@ -175,7 +155,7 @@ class NotificationService:
         return {
             "notification": notification,
             "message": message,
-            "success": True  # Always return success
+            "success": True
         }
     
     async def _send_email_async(self, to_email: str, subject: str, body: str) -> None:
@@ -199,16 +179,13 @@ class NotificationService:
         if not all([self.sender_email, self.sender_password]):
             raise ValueError("SENDER_EMAIL and SENDER_PASSWORD must be set in environment variables")
         
-        # Create message
         msg = MIMEMultipart()
         msg['From'] = f"{self.sender_name} <{self.sender_email}>"
         msg['To'] = to_email
         msg['Subject'] = subject
         
-        # Add plain text body
         msg.attach(MIMEText(body, 'plain'))
         
-        # Send email
         try:
             with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=5) as server:
                 server.starttls()

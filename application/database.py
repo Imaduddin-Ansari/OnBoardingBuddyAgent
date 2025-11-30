@@ -8,26 +8,18 @@ import uuid
 
 Base = declarative_base()
 
-# ============================================================================
-# ENUMS
-# ============================================================================
-
 class NotificationType(str, enum.Enum):
     WELCOME = "welcome"
     ACCESS_GRANTED = "access_granted"
     COMPLETION = "completion"
-
-# ============================================================================
-# MODELS
-# ============================================================================
 
 class Employee(Base):
     __tablename__ = "employees"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False)
-    personal_email = Column(String, nullable=False, unique=True)  # NEW: User-provided email
-    email = Column(String, unique=True)  # CHANGED: Generated company email (nullable until generated)
+    personal_email = Column(String, nullable=False, unique=True)
+    email = Column(String, unique=True)
     phone = Column(String)
     department = Column(String, nullable=False)
     position = Column(String)
@@ -42,7 +34,7 @@ class Employee(Base):
             "id": self.id,
             "name": self.name,
             "personal_email": self.personal_email,
-            "email": self.email,  # Company email
+            "email": self.email,
             "phone": self.phone,
             "department": self.department,
             "position": self.position,
@@ -79,10 +71,6 @@ class Notification(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
-# ============================================================================
-# DATABASE CLASS
-# ============================================================================
-
 class Database:
     def __init__(self, db_url: str = "sqlite:///onboarding.db"):
         self.engine = create_engine(db_url, echo=False)
@@ -91,10 +79,6 @@ class Database:
     
     def get_session(self) -> Session:
         return self.SessionLocal()
-    
-    # ============================================================================
-    # EMPLOYEE OPERATIONS
-    # ============================================================================
     
     def create_employee(self, employee: Employee) -> Employee:
         """Create a new employee record."""
@@ -168,10 +152,6 @@ class Database:
         finally:
             session.close()
     
-    # ============================================================================
-    # NOTIFICATION OPERATIONS
-    # ============================================================================
-    
     def create_notification(self, notification: Notification) -> Notification:
         """Create a new notification record."""
         session = self.get_session()
@@ -234,10 +214,6 @@ class Database:
             return False
         finally:
             session.close()
-    
-    # ============================================================================
-    # UTILITY OPERATIONS
-    # ============================================================================
     
     def clear_all_data(self):
         """Clear all data from database (for testing purposes)."""

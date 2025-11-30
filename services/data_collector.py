@@ -11,7 +11,7 @@ class DataCollector:
     def create_employee(
         self,
         name: str,
-        personal_email: str,  # CHANGED: renamed from 'email' to 'personal_email'
+        personal_email: str,
         department: str,
         joining_date: datetime,
         manager_id: Optional[str] = None,
@@ -33,28 +33,23 @@ class DataCollector:
         Returns:
             Employee object with generated ID
         """
-        # Validate required fields
         if not name or not personal_email or not department:
             raise ValueError("Name, personal email, and department are required")
         
-        # Validate email format
         if '@' not in personal_email:
             raise ValueError("Invalid email format")
         
-        # Check if personal email already exists
         existing = self.db.get_employee_by_personal_email(personal_email)
         if existing:
             raise ValueError(f"Employee with personal email {personal_email} already exists")
         
-        # Ensure joining_date is datetime object
         if not isinstance(joining_date, datetime):
             raise ValueError("joining_date must be a datetime object")
         
-        # Create employee object - company email will be generated later by access_manager
         employee = Employee(
             name=name,
             personal_email=personal_email,
-            email=None,  # Will be set when company email is generated
+            email=None,
             department=department,
             joining_date=joining_date,
             manager_id=manager_id,
@@ -63,7 +58,6 @@ class DataCollector:
             status="active"
         )
         
-        # Save to database
         employee = self.db.create_employee(employee)
         return employee
     

@@ -14,10 +14,8 @@ class AccessManager:
         self.db = db
         self.company_domain = "company.com"
         
-        # MailSlurp API Configuration
         self.mailslurp_api_key = os.getenv("MAILSLURP_API_KEY")
         
-        # Validate API key on initialization
         if not self.mailslurp_api_key:
             print("⚠️  Warning: MAILSLURP_API_KEY not found in environment variables")
             print("    Set it with: export MAILSLURP_API_KEY='your-api-key'")
@@ -130,21 +128,19 @@ class AccessManager:
             Dict with email details
         """
         try:
-            # Run the synchronous MailSlurp call in a thread pool with timeout
             loop = asyncio.get_event_loop()
             result = await asyncio.wait_for(
                 loop.run_in_executor(
-                    None,  # Uses default executor (ThreadPoolExecutor)
+                    None,
                     self._create_mailslurp_inbox_sync,
                     name
                 ),
-                timeout=10.0  # 10 second timeout
+                timeout=10.0
             )
             
             if result["success"]:
                 return result
             
-            # If MailSlurp fails, use fallback
             print(f"⚠️  MailSlurp unavailable: {result.get('error', 'Unknown error')}")
             print(f"    Using fallback email generation...")
             
@@ -155,7 +151,6 @@ class AccessManager:
             print(f"⚠️  Exception during email creation: {str(e)}")
             print(f"    Using fallback email generation...")
         
-        # Fallback email generation
         parts = name.strip().split()
         fallback_email = f"{parts[0].lower()}.{parts[-1].lower() if len(parts) > 1 else 'employee'}@{self.company_domain}"
         
@@ -189,7 +184,6 @@ class AccessManager:
         print(f"🚀 Setting up access for: {employee.name}")
         print(f"{'='*60}\n")
         
-        # 1. Email Account - Create REAL working email via MailSlurp
         print("📧 Step 1/3: Creating email account...")
         email_result = await self.generate_real_email(employee.name)
         email_password = self._generate_password(14)
@@ -206,13 +200,11 @@ class AccessManager:
             "is_fallback": not email_result["success"]
         }
         
-        # 2. Update employee record with the generated email
         self.db.update_employee(
             employee_id,
             email=credentials['email']['email_address']
         )
         
-        # 3. System Credentials (VPN, building access, etc.)
         print("\n🔐 Step 2/3: Generating system credentials...")
         username = self._generate_username(employee.name)
         system_password = self._generate_password(16)
@@ -232,7 +224,6 @@ class AccessManager:
         
         await asyncio.sleep(0.3)
         
-        # 4. Workspace Permissions (based on department)
         print(f"\n🔧 Step 3/3: Setting up workspace access for {employee.department}...")
         access_details = self._get_department_access(employee.department)
         
@@ -242,7 +233,6 @@ class AccessManager:
         
         await asyncio.sleep(0.2)
         
-        # Print credentials clearly
         print(f"\n{'='*60}")
         print(f"✅ ACCESS SETUP COMPLETE")
         print(f"{'='*60}\n")
@@ -275,7 +265,6 @@ class AccessManager:
         
         print(f"\n{'='*60}\n")
         
-        # Create comprehensive message
         service_name = credentials['email']['service']
         
         message = (

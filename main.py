@@ -1,10 +1,7 @@
-"""
-Complete Onboarding Buddy Agent - Main Application
-Modified to include full details in result field
-"""
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 import re
 from datetime import datetime, timedelta
+from dateutil import parser as date_parser
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
@@ -26,18 +23,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Initialize database and services
 db = Database()
 access_manager = AccessManager(db)
 progress_monitor = ProgressMonitor(db)
 notification_service = NotificationService(db)
 
-# Initialize data collector with dependencies
 data_collector = DataCollector(db)
-
-# ============================================================================
-# REQUEST/RESPONSE MODELS (Supervisor Handshake Protocol)
-# ============================================================================
 
 class InputMetadata(BaseModel):
     language: str = "en"
@@ -75,10 +66,6 @@ class WorkerResponse(BaseModel):
     output: Optional[OutputData] = None
     error: Optional[ErrorData] = None
 
-# ============================================================================
-# HEALTH CHECK
-# ============================================================================
-
 @app.get("/health")
 async def health_check():
     """Health check endpoint for supervisor agent."""
@@ -95,10 +82,6 @@ async def health_check():
             "notifications": "operational"
         }
     }
-
-# ============================================================================
-# MAIN EXECUTION ENDPOINT
-# ============================================================================
 
 @app.post("/execute", response_model=WorkerResponse)
 async def execute_intent(request: WorkerRequest, background_tasks: BackgroundTasks):
@@ -153,17 +136,13 @@ async def execute_intent(request: WorkerRequest, background_tasks: BackgroundTas
             )
         )
 
-# ============================================================================
-# INTENT HANDLERS
-# ============================================================================
-
 async def handle_create_employee(data: dict) -> OutputData:
     """Create new employee and trigger onboarding flow."""
     
     # Create employee
     employee = data_collector.create_employee(
         name=data.get("name"),
-        personal_email=data.get("personal_email"),  # CHANGED
+        personal_email=data.get("personal_email"),
         department=data.get("department"),
         joining_date=data.get("joining_date"),
         manager_id=data.get("manager_id"),
@@ -485,61 +464,6 @@ Status: Access setup is being processed. Details will be available shortly.
 """
     
     return details
-    """Format details when employee information is incomplete."""
-    missing_fields = progress.get("missing_fields", [])
-    
-    details = f"""⚠️ EMPLOYEE INFORMATION INCOMPLETE
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📋 EMPLOYEE DETAILS
-
-Name: {employee.name if employee.name else '❌ MISSING'}
-Email: {employee.email if employee.email else '❌ MISSING'}
-Department: {employee.department if employee.department else '❌ MISSING'}
-Position: {employee.position if employee.position else '❌ MISSING'}
-Phone: {employee.phone if employee.phone else '❌ MISSING'}
-Manager ID: {employee.manager_id if employee.manager_id else '❌ MISSING'}
-Joining Date: {employee.joining_date.strftime('%B %d, %Y') if employee.joining_date else '❌ MISSING'}
-Employee ID: {employee.id}
-
-Profile Completion: {progress['completion_percentage']:.0f}%
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-❌ MISSING INFORMATION ({len(missing_fields)} field(s)):
-
-"""
-    
-    for field in missing_fields:
-        field_display = field.replace('_', ' ').title()
-        details += f"  • {field_display}\n"
-    
-    details += f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📝 HOW TO COMPLETE
-
-To update this employee's information, use the update intent with their email:
-
-Example update request:
-{{
-    "email": "{employee.email}",
-    "position": "Software Engineer",
-    "phone": "+1-555-0123",
-    "manager_id": "MGR001"
-}}
-
-Once all required fields are complete, the system will automatically:
-  1. Generate corporate email account
-  2. Create system credentials
-  3. Setup workspace access
-  4. Send welcome email with all details
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"""
-    
-    return details
 
 def format_complete_progress_details(employee: Employee, progress: dict) -> str:
     """Format details for complete progress check."""
@@ -569,17 +493,10 @@ All required information is complete. Employee is ready for access setup.
     
     return details
 
-# ============================================================================
-# PARSING FUNCTIONS
-# ============================================================================
-
 """
 Fix for joining_date parsing - Convert ISO strings to datetime objects
 Add this helper function and update the parse_input function
 """
-
-from datetime import datetime
-from dateutil import parser as date_parser  # pip install python-dateutil
 
 def parse_date_string(date_str: str) -> datetime:
     """
@@ -866,30 +783,6 @@ def extract_position(text_lower: str) -> str:
     
     return None
 
-    """Extract or infer joining date from text."""
-    # Pattern 1: YYYY-MM-DD or YYYY/MM/DD
-    match = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', text_lower)
-    if match:
-        return f"{match.group(1)}-{match.group(2).zfill(2)}-{match.group(3).zfill(2)}T00:00:00"
-    
-    # Pattern 2: Month Day, Year
-    months = {
-        "january": 1, "february": 2, "march": 3, "april": 4,
-        "may": 5, "june": 6, "july": 7, "august": 8,
-        "september": 9, "october": 10, "november": 11, "december": 12
-    }
-    
-    for month_name, month_num in months.items():
-        if month_name in text_lower:
-            day_match = re.search(rf'{month_name}\s+(\d{{1,2}})', text_lower)
-            year_match = re.search(r'(20\d{2})', text_lower)
-            if day_match:
-                day = day_match.group(1).zfill(2)
-                year = year_match.group(1) if year_match else "2025"
-                return f"{year}-{str(month_num).zfill(2)}-{day}T00:00:00"
-    
-    # Default: next Monday
-    return get_next_monday().isoformat()
 def get_next_monday() -> datetime:
     """Get the date of next Monday."""
     today = datetime.utcnow()
@@ -930,10 +823,6 @@ def extract_employee_id(text_lower: str) -> str:
         return match.group(1)
     
     return None
-
-# ============================================================================
-# ADDITIONAL ENDPOINTS (Direct Access)
-# ============================================================================
 
 @app.get("/employees")
 async def list_employees():
